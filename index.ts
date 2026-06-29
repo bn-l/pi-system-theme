@@ -281,14 +281,11 @@ async function promptTheme(
     ctx: ExtensionCommandContext,
     label: string,
     currentValue: string,
+    availableThemeNames: string[],
 ): Promise<string | undefined> {
-    const next = await ctx.ui.input(label, currentValue);
-    if (next === undefined) {
-        return undefined;
-    }
-
-    const trimmed = next.trim();
-    return trimmed.length > 0 ? trimmed : currentValue;
+    // Put current selection first so it appears as the default in the picker
+    const ordered = [currentValue, ...availableThemeNames.filter((n) => n !== currentValue)];
+    return ctx.ui.select(label, ordered);
 }
 
 async function promptPollMs(ctx: ExtensionCommandContext, currentValue: number): Promise<number | undefined> {
@@ -438,6 +435,7 @@ export default function systemThemeExtension(pi: ExtensionAPI): void {
             }
 
             const draft: Config = { ...activeConfig };
+            const availableThemeNames = ctx.ui.getAllThemes().map((t) => t.name);
 
             while (true) {
                 const darkOption = `Dark theme: ${draft.darkTheme}`;
@@ -459,7 +457,7 @@ export default function systemThemeExtension(pi: ExtensionAPI): void {
                 }
 
                 if (choice === darkOption) {
-                    const next = await promptTheme(ctx, "Dark theme", draft.darkTheme);
+                    const next = await promptTheme(ctx, "Dark theme", draft.darkTheme, availableThemeNames);
                     if (next !== undefined) {
                         draft.darkTheme = next;
                     }
@@ -467,7 +465,7 @@ export default function systemThemeExtension(pi: ExtensionAPI): void {
                 }
 
                 if (choice === lightOption) {
-                    const next = await promptTheme(ctx, "Light theme", draft.lightTheme);
+                    const next = await promptTheme(ctx, "Light theme", draft.lightTheme, availableThemeNames);
                     if (next !== undefined) {
                         draft.lightTheme = next;
                     }
