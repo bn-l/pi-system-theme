@@ -3,7 +3,24 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import {
+    DynamicBorder,
+    getSelectListTheme,
+} from "@earendil-works/pi-coding-agent";
+import type {
+    ExtensionAPI,
+    ExtensionCommandContext,
+    ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+    Container,
+    Key,
+    type SelectItem,
+    SelectList,
+    Spacer,
+    Text,
+    matchesKey,
+} from "@earendil-works/pi-tui";
 
 const execFileAsync = promisify(execFile);
 
@@ -277,15 +294,89 @@ async function detectAppearance(): Promise<Appearance | null> {
     }
 }
 
-async function promptTheme(
+async function pickTheme(
     ctx: ExtensionCommandContext,
     label: string,
     currentValue: string,
     availableThemeNames: string[],
 ): Promise<string | undefined> {
-    // Put current selection first so it appears as the default in the picker
-    const ordered = [currentValue, ...availableThemeNames.filter((n) => n !== currentValue)];
-    return ctx.ui.select(label, ordered);
+    const selectTheme = getSelectListTheme();
+    const items: SelectItem[] = availableThemeNames.map((name) => ({
+        value: name,
+        label: name,
+    }));
+    const maxVisible = Math.min(items.length, 15);
+    const currentIndex = availableThemeNames.indexOf(currentValue);
+
+    const result = await ctx.ui.custom<string | undefined>(
+        (_tui, theme, _kb, done) => {
+            const container = new Container();
+            const borderFn = (s: string) => theme.fg("accent", s);
+
+            const selectList = new SelectList(items, maxVisible, selectTheme);
+            if (currentIndex >= 0) {
+                selectList.setSelectedIndex(currentIndex);
+            }
+
+            selectList.onSelect = (item) => done(item.value);
+            selectList.onCancel = () => done(undefined);
+
+            container.addChild(new DynamicBorder(borderFn));
+            container.addChild(new Spacer(1));
+            container.addChild(
+                new Text(
+                    theme.fg("accent", theme.bold(label)),
+                    1,
+                    0,
+                ),
+            );
+            container.addChild(new Spacer(1));
+            container.addChild(selectList);
+            container.addChild(new Spacer(1));
+            container.addChild(
+                new Text(
+                    theme.fg(
+                        "dim",
+                        "Type to filter • ↑↓ navigate • enter select • esc cancel",
+                    ),
+                    1,
+                    0,
+                ),
+            );
+            container.addChild(new DynamicBorder(borderFn));
+
+            return {
+                dispose() {
+                    container.clear();
+                },
+                handleInput(data: string) {
+                    if (matchesKey(data, Key.ctrl("c"))) {
+                        done(undefined);
+                        return;
+                    }
+                    selectList.handleInput(data);
+                    _tui.requestRender();
+                },
+                invalidate() {
+                    container.invalidate();
+                },
+                render(width: number) {
+                    return container.render(width);
+                },
+            };
+        },
+        {
+            overlay: true,
+            overlayOptions: {
+                anchor: "center",
+                margin: 1,
+                maxHeight: "90%",
+                width: 58,
+            },
+        },
+    );
+
+    return result;
 }
 
 async function promptPollMs(ctx: ExtensionCommandContext, currentValue: number): Promise<number | undefined> {
@@ -457,7 +548,7 @@ export default function systemThemeExtension(pi: ExtensionAPI): void {
                 }
 
                 if (choice === darkOption) {
-                    const next = await promptTheme(ctx, "Dark theme", draft.darkTheme, availableThemeNames);
+                    const next = await pickTheme(ctx, "Dark theme", draft.darkTheme, availableThemeNames);
                     if (next !== undefined) {
                         draft.darkTheme = next;
                     }
@@ -465,7 +556,7 @@ export default function systemThemeExtension(pi: ExtensionAPI): void {
                 }
 
                 if (choice === lightOption) {
-                    const next = await promptTheme(ctx, "Light theme", draft.lightTheme, availableThemeNames);
+                    const next = await pickTheme(ctx, "Light theme", draft.lightTheme, availableThemeNames);
                     if (next !== undefined) {
                         draft.lightTheme = next;
                     }
